@@ -20,7 +20,7 @@ if (!empty($match_id)) {
 
 //unzip the file
 $cmd = "unzip $dpath/$match_id.honreplay -d $dpath/$match_id";
-exec($cmd);
+exec(escapeshellcmd($cmd));
 
 //check to make sure we have file
 echo "<LINK href='hon_chat_parser.css' rel='stylesheet' type='text/css'>";
@@ -122,7 +122,7 @@ if (!file_exists("$dpath/$match_id/replayinfo")) {
 
 	//delete file
 	$cmd = "rm $dpath/* -rf";
-	exec($cmd);
+	exec(escapeshellcmd($cmd));
 
 	//build messages
 	$chat[] = null;
