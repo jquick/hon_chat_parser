@@ -1,0 +1,50 @@
+body {
+	background-color:rgb(0,0,0);
+	color:rgb(255,255,255);
+	font-family:monospace;
+}
+span.all {
+	color:blue;
+}
+span.team1 {
+	color:green;
+}
+span.team2 {
+	color:red;
+}
+span.color10 {
+	color:#06F;
+}
+span.color11 {
+	color:#17BC9A;
+}
+span.color12 {
+	color:#96F;
+}
+span.color13 {
+	color:#FFFC01;
+}
+span.color14 {
+	color:#FE8A0E;
+}
+span.color20 {
+	color:#E55BB0;
+}
+span.color21 {
+	color:#959697;
+}
+span.color22 {
+	color:#7EBFF1;
+}
+span.color23 {
+	color:#396;
+}
+span.color24 {
+	color:#960;
+}
+a:link {
+	color:rgb(255,255,255);
+}
+a:visited {
+	color:rgb(255,255,255);
+}
