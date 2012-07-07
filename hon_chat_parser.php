@@ -3,13 +3,15 @@
 $dpath = "/home/jquick/jaredquick.com/tmp";
 $match_id = $argv[1] ?: trim($_GET['match_id']);
 $show_kills = $argv[2] ?: $_GET['show_kills'];
+include_once("googleanalytics.php");
+include_once("piwikjs.php");
 echo "<LINK href='hon_chat_parser.css' rel='stylesheet' type='text/css'>";
 echo "
-<form method='get' action='hon_chat_parser_test.php'>
+<form method='get' action='hon_chat_parser.php'>
 <table><tr><td>
 Match ID:<input type='text' value='$match_id' size='12' maxlength='12' name='match_id'></td><td>
 Show Kills:<input type='checkbox' name='show_kills'" . ($show_kills == 1 ? 'checked' : null) . "
-value='1' /></td><td><input type='submit' value='Go!' /></td></table></form>";
+value='1' /></td><td><input type='submit' value='Go!' /></td></tr></table></form>";
 //***********************************
 
 //**************RUN******************
@@ -48,12 +50,12 @@ function parse ($dpath, $match_id, $show_kills) {
 
 
 	//find event hex key
-	preg_match('/\x00\x00[^\x00][^\x00](.)\x00\xFC\xFF\xFF\xFF[^\x00][^\x00][^\x00][\x00\x01]\x00\x00/', $data, $key);
+	preg_match('/\x00\x00[^\xZZ]{2,4}([^\xFF])\x00\xFC\xFF\xFF\xFF[^\xZZ]{2,4}\x00\x00/', $data, $key);
 	$key = bin2hex($key[1]);
 	echo ($debug == 1 ? "key - $key<br />" : null);
 
 	//get start time
-	preg_match("/\\x0A\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0B[^\\x$key]*[\\x$key]\\x00[^\\x00]([^\\xFF][^\\xFF])/", $data, $start);
+	preg_match("/\\x0A[\\x00-\\x03]{7}[\\x0B-\\x0F][^\\x$key]*[\\x$key]\\x00[^\\x00]([^\\xFF][^\\xFF])/", $data, $start);
 	$tstart = hexdec(bin2hex(strrev($start[1])));
 
 	//grab all the events
@@ -66,14 +68,32 @@ function parse ($dpath, $match_id, $show_kills) {
 		$data = fread($fp, $pos[0][1]);
 		$data2 = fread($fp, filesize($fname));
 
-		$events = preg_split("/([\\x$key]\\x00[^\\x00][^\\xFF][^\\x00])\\x00\\x00/", $data, 0, PREG_SPLIT_DELIM_CAPTURE);
-		$data = null;
-		$events2 = preg_split("/([\\x$key2]\\x00[^\\x00][^\\xFF][^\\x00])\\x00\\x00/", $data2, 0, PREG_SPLIT_DELIM_CAPTURE);
-		$data2= null;
-		array_shift($events2);
-		$events = array_merge($events, $events2);
+		//check for 3rd key
+		if (preg_match("/\\x00\\xFF\\xFF\\x$key2\\x00[^\\x00]/", $data2, $pos2, PREG_OFFSET_CAPTURE)) {
+			$key3 = dechex((hexdec($key2)+1));
+			echo ($debug == 1 ?"<br/> we have 3rd key trying to fix - " . $key3 : null);
+			fseek($fp, $pos[0][1]);
+			$data2 = fread($fp, $pos2[0][1]);
+			$data3 = fread($fp, filesize($fname));
+			$events = preg_split("/([\\x$key]\\x00[^\\x00][^\\xFF][^\\x00])[\\x00-\\x05]\\x00/", $data, 0, PREG_SPLIT_DELIM_CAPTURE);
+			$data = null;
+			$events2 = preg_split("/([\\x$key2]\\x00[^\\x00][^\\xFF][^\\x00])[\\x00-\\x05]\\x00/", $data2, 0, PREG_SPLIT_DELIM_CAPTURE);
+			$data2= null;
+			$events3 = preg_split("/([\\x$key3]\\x00[^\\x00][^\\xFF][^\\x00])[\\x00-\\x05]\\x00/", $data3, 0, PREG_SPLIT_DELIM_CAPTURE);
+			$data3= null;
+			array_shift($events2);
+			array_shift($events3);
+			$events = array_merge($events, $events2, $events3);
+		} else {
+			$events = preg_split("/([\\x$key]\\x00[^\\x00][^\\xFF][^\\x00])[\\x00-\\x05]\\x00/", $data, 0, PREG_SPLIT_DELIM_CAPTURE);
+			$data = null;
+			$events2 = preg_split("/([\\x$key2]\\x00[^\\x00][^\\xFF][^\\x00])[\\x00-\\x05]\\x00/", $data2, 0, PREG_SPLIT_DELIM_CAPTURE);
+			$data2= null;
+			array_shift($events2);
+			$events = array_merge($events, $events2);
+		}
 	} else {
-		$events = preg_split("/([\\x$key]\\x00[^\\x00][^\\xFF][^\\x00])\\x00\\x00/", $data, 0, PREG_SPLIT_DELIM_CAPTURE);
+		$events = preg_split("/([\\x$key]\\x00[^\\x00][^\\xFF][^\\x00])[\\x00-\\x05]\\x00/", $data, 0, PREG_SPLIT_DELIM_CAPTURE);
 		$data = null;
 	}
 	fclose($fp);
@@ -123,7 +143,8 @@ function parse ($dpath, $match_id, $show_kills) {
 		}
 
 		//kills
-		$start = '\x00\xFF\xFF\xFF\xFF[^\xFF\x01]\x00\x00\x00[^\xFF]{0,6}([\x60\x63])([\x00-\x09])\x00\x00\x00([\x00-\x09])\x00\x00';
+		$start = '\x00\xFF\xFF\xFF\xFF[^\xFF\x01]\x00\x00\x00[^\x99]{0,6}([\x60\x63])([\x00-\x09])\x00\x00\x00([\x00-\x09])\x00\x00';
+		//$start = '[^\xFF\x01]\x00\x00\x00[^\x99]{0,6}([\x60\x63])([\x00-\x09])\x00\x00\x00([\x00-\x09])\x00\x00';
 		$end = "\\x00";
 		preg_match("/$start$end/", $events[$i], $m);
 		if (!empty($m[0])) {
@@ -140,12 +161,11 @@ function parse ($dpath, $match_id, $show_kills) {
 
 	//output
 	echo "<h2>{$ginfo['gamename']}</h2>";
-	echo "<a href='http://replaydl.heroesofnewerth.com/replay_dl.php?file=&match_id={$match_id}'>Download</a>";
 	echo " {$ginfo['date']} {$ginfo['time']} ";
 	echo (gmdate('H:i:s', $ginfo['matchlength']/1000));
-	echo " Winner: <b>" . $ginfo['winner'] . "</b>";
+	echo " <a href='http://replaydl.heroesofnewerth.com/replay_dl.php?file=&match_id={$match_id}'>Download</a>";
 
-	print_match_table($players, $match_id, $debug);
+	print_match_table($players, $match_id, $ginfo, $debug);
 
 	//output messages
 	foreach ($output as $msg) {
@@ -153,7 +173,7 @@ function parse ($dpath, $match_id, $show_kills) {
 		$msg['time'] = (($msg['time']-$tstart)/7.816);
 
 		if ($msg['type'] == 'Kill' && $show_kills == 1) {
-			echo "[" . gmdate('i:s', $msg['time']) . "]";
+			echo "[" . get_time($msg['time']) . "]";
 			echo "<span class='{$msg['type']}'>[{$msg['type']}]</span>";
 			echo "<span class='kill'><span class='color" . $players[$msg['user']]['team'] . $players[$msg['user']]['teamindex'] . "'>";
 			echo $players[$msg['user']]['name'] . "</span> cridered ";
@@ -165,7 +185,7 @@ function parse ($dpath, $match_id, $show_kills) {
 			echo "</span><br />";
 		} else if (isset($msg['msg']) && !empty($msg['msg']) && $msg['type'] != 'Kill') {
 			$msg['msg'] = htmlentities($msg['msg']);
-			echo "[" . gmdate('i:s', $msg['time']) . "]";
+			echo "[" . get_time($msg['time']) . "]";
 			if ($msg['type'] != 'Team')
 				echo "<span class='{$msg['type']}'>[{$msg['type']}]</span>";
 			else
@@ -250,7 +270,7 @@ function check_kill_count($msg, $kill_count) {
 	return $kill_count;
 }
 
-function print_match_table ($players, $match_id, $debug) {
+function print_match_table ($players, $match_id, $ginfo, $debug) {
 	$logs = get_match_log($match_id);
 	//print_r($logs);
 	//match table
@@ -261,15 +281,18 @@ function print_match_table ($players, $match_id, $debug) {
 	foreach ($tp as $k => $v) {
 		//prtection incase s2 crashes
 		if (!empty($logs)) {
-			$tp[$k] = array_merge($logs['match_player_stats'][$match_id][$v['accountid']], $tp[$k], $logs['inventory'][$match_id][$v['accountid']]);
+			$tp[$k] = array_merge($tp[$k], $logs['match_player_stats'][$match_id][$v['accountid']], (array)$logs['inventory'][$match_id][$v['accountid']]);
 			$tp[$k]['xpm'] = round($tp[$k]['exp'] / ($tp[$k]['secs']/60));
 			$tp[$k]['gpm'] = round($tp[$k]['gold'] / ($tp[$k]['secs']/60));
 			$tp[$k]['apm'] = round($tp[$k]['actions'] / ($tp[$k]['secs']/60));
+			$tp[$v['team'] . 'kills'] += $logs['match_player_stats'][$match_id][$v['accountid']]['herokills'];
 		}
 	}
 	echo "<div><table>";
-	echo "<th><span class='team1'>Legion</span></th>";
-	echo "<th><span class='team2'>Hellbourne</span></th>";
+	echo "<th>[". $tp['1kills'];
+	echo "]&nbsp;<span class='team1'>Legion</span>&nbsp;" . ($ginfo['winner'] == 'Legion' ? "[WINNER]" : null) .  "</th>";
+	echo "<th>[". $tp['2kills'];
+	echo "]&nbsp;<span class='team2'>Hellbourne</span>&nbsp;" . ($ginfo['winner'] == 'Hellbourne' ? "[WINNER]" : null) .  "</th>";
 	echo "<tr>";
 	
 	for ($t=1; $t <= 2; $t++) {
@@ -277,8 +300,12 @@ function print_match_table ($players, $match_id, $debug) {
 		echo "<th>Player</th><th title='Level'>lvl</th><th title='Kill/Death/Assists'>k/d/a</th><th title='Creep kills/denies'>C:k/d</th>";
 		echo "<th title='XP per min'>xpm</th><th title='Gold per min'>gpm</th><th title='Actions per min'>apm</th><th title='Wards'>!</th><th>Inventory</th>";
 		foreach ($tp as $p) {
+			if (empty($p['heroid']))
+				$p['heroid'] = $p['hero_id'];
 			if ($p['team'] == $t) {
-				echo "<tr><td class='left'><img src='http://www.heroesofnewerth.com/images/heroes/{$p['heroid']}/icon_25.jpg' title='{$p['heroname']}'>";
+				echo "<tr><td class='left'>";
+				echo ($debug == 1 ? "[{$p['id']}]" : null);
+				echo "<img src='http://www.heroesofnewerth.com/images/heroes/{$p['heroid']}/icon_25.jpg' title='{$p['hero_id']}-{$p['heroname']}'>";
 				echo "&nbsp;<span class='color{$p['team']}{$p['teamindex']}'>{$p['name']}</span></td>";
 				echo "<td>{$p['level']}</td><td>{$p['herokills']}/{$p['deaths']}/{$p['heroassists']}</td>";
 				echo "<td>{$p['teamcreepkills']}/{$p['denies']}</td><td>{$p['xpm']}</td><td>{$p['gpm']}</td><td>{$p['apm']}</td><td>{$p['wards']}</td><td class='left'>";
@@ -347,6 +374,9 @@ function download_replay ($dpath, $match_id) {
 	//unzip the file
 	$cmd = "unzip $dpath/$match_id.honreplay -d $dpath/$match_id";
 	exec(escapeshellcmd($cmd));
+	//update permissions so i can delete
+	exec(escapeshellcmd("chmod 777 -R $dpath/$match_id"));
+	exec(escapeshellcmd("chmod 777 $dpath/$match_id.honreplay"));
 	//check to make sure we have file
 	if (!file_exists("$dpath/$match_id/replayinfo")) {
 		exec(" rm $dpath/$match_id.honreplay");
@@ -388,5 +418,12 @@ function get_match_log ($match_id) {
 	$ch = curl_init("$url?f=get_match_stats&match_id[0]=$match_id&cookie=$cookie");
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
 	return unserialize(curl_exec($ch));
+}
+
+function get_time ($time) {
+	$time = gmdate('H:i:s:', $time);
+	preg_match('/(\d{2}):(\d{2}):(\d{2})/', $time, $r);
+	return str_pad($r[2]+($r[1]*60), 2, "0", STR_PAD_LEFT) . ":" . $r[3];
+	
 }
 ?>
